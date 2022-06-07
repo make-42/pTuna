@@ -1,0 +1,3 @@
+/mnt/c/Users/OnTake/Files/Shared Files/Programming/_2022/pTuna/debug/build/CMakeFiles/rebuild_cache.dir
+/mnt/c/Users/OnTake/Files/Shared Files/Programming/_2022/pTuna/debug/build/CMakeFiles/edit_cache.dir
+/mnt/c/Users/OnTake/Files/Shared Files/Programming/_2022/pTuna/debug/build/CMakeFiles/ptunaDebug.dir
