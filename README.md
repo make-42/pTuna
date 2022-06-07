@@ -17,8 +17,8 @@ Total: € 11.75 (excluding shipping)
 
 ## Wiring
 
-<img width=50% src="https://raw.githubusercontent.com/make-42/pTuna/master/Manual/Wiring.png"></img>
+![pTuna Wiring](https://raw.githubusercontent.com/make-42/pTuna/master/Manual/Wiring.png)
 
 ## Schematic
 
-<img width=50% src="https://raw.githubusercontent.com/make-42/pTuna/master/Manual/Schematic.png"></img>
+![pTuna Schematic](https://raw.githubusercontent.com/make-42/pTuna/master/Manual/Schematic.png)
