@@ -15,7 +15,18 @@ Total: € 11.75 (excluding shipping)
 
 Note: If you are in Paris I'd definitely recommend [letmeknow](https://letmeknow.fr) for getting parts. The prices are affordable and the staff lovely!
 
+## Building firmware
 
+- Clone this repo
+- Run this command:
+
+`cd ./pTuna/Firmware/final/`
+
+- Edit `build.sh` to point to your pico SDK folder.
+
+- Build with:
+
+`sh build.sh`
 
 ## Wiring
 
