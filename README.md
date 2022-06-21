@@ -13,6 +13,8 @@ An open-source DIY guitar tuner.
 
 Total: € 11.75 (excluding shipping)
 
+Note: If you are in Paris I'd definitely recommend [letmeknow](https://letmeknow.fr) for getting parts. The prices are affordable and the staff lovely!
+
 
 
 ## Wiring
