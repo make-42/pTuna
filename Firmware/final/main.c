@@ -20,6 +20,7 @@
 
 #include "bitmaps/splashScreen.h"
 #include "bitmaps/mainUI.h"
+#include "bitmaps/overclockFail.h"
 
 #include "notes/notes.h"
 
@@ -32,6 +33,7 @@
 #define MIC_BUFFER_SIZE 4096 // hz
 #define MIC_SAMPLERATE 4000 // no unit
 #define MIC_GAIN 1.0 // multiplier
+#define BOOT_ANIMATION_FRAMES 60
 
 // configuration
 const struct pdm_microphone_config config = {
@@ -52,12 +54,20 @@ float freqs[MIC_BUFFER_SIZE];
 void setup_gpios(void);
 void setup_microphone(void);
 void splashscreen(ssd1306_t disp);
+void overclockFail(ssd1306_t disp);
 void showMainUI(ssd1306_t disp);
 double U64ToDoubleConverter(uint64_t val);
 double determineNote(double frequency, char * output_note_string, char * output_octave_string);
 void drawGuitarStringIndicator(ssd1306_t disp, int stringIndex);
 
 int main() {
+  // Overclock Pico
+  bool overclockingSuccess = true;
+  if (!set_sys_clock_khz(150000, true)){
+    set_sys_clock_khz(125000, true);
+    overclockingSuccess = false;
+  }
+  // STDIO
   stdio_init_all();
 
   printf("configuring pins...\n");
@@ -66,6 +76,11 @@ int main() {
   ssd1306_t disp;
   disp.external_vcc = false;
   ssd1306_init( & disp, 128, 64, 0x3C, i2c0);
+  if (!overclockingSuccess){
+    printf("overclock failed...\n");
+    overclockFail(disp);
+    return 0;
+  }
   splashscreen(disp);
   // initialize the PDM microphone
   printf("microphone init...\n");
@@ -110,6 +125,13 @@ void splashscreen(ssd1306_t disp) {
   sleep_ms(SPLASHSCREEN_DURATION);
 }
 
+void overclockFail(ssd1306_t disp) {
+  ssd1306_clear( & disp);
+  printf("Showing overclock fail screen!\n");
+  ssd1306_bmp_show_image( & disp, overclockfail_screen_image_data, overclockfail_screen_image_size);
+  ssd1306_show( & disp);
+}
+
 double U64ToDoubleConverter(uint64_t val) {
   double convertedValue = 0.0;
   memcpy( & convertedValue, & val, sizeof(convertedValue));
@@ -142,85 +164,10 @@ void drawGuitarStringIndicator(ssd1306_t disp, int stringIndex) {
   ssd1306_draw_square( & disp, 3 + stringIndex * 5, 35, 3, 3); // 3, 35
 }
 
-void showMainUI(ssd1306_t disp) {
-  // FFT setup start.
-  // calculate frequencies of each bin
-  float f_max = MIC_SAMPLERATE;
-  float f_res = f_max / MIC_BUFFER_SIZE;
-  for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
-    freqs[i] = f_res * i;
-  }
-  kiss_fft_scalar fft_in[MIC_BUFFER_SIZE]; // kiss_fft_scalar is a float
-  kiss_fft_cpx fft_out[MIC_BUFFER_SIZE];
-  kiss_fftr_cfg cfg = kiss_fftr_alloc(MIC_BUFFER_SIZE, false, 0, 0);
-  // FFT setup end.
-  ssd1306_clear( & disp);
-  char * old_output_note_string = (char * ) malloc(6 * sizeof(char));
-  char * old_output_octave_string = (char * ) malloc(6 * sizeof(char));
-  double old_note_semitones_offset = 0;
-  bool is_this_the_first_output_note = true;
-  // Allocate memory for temporary variables
-  char * output_note_letter = (char * ) malloc(1 * sizeof(char));
-  char * output_cents_offset_string = (char * ) malloc(4 * sizeof(char));
-  char * output_note_string = (char * ) malloc(6 * sizeof(char));
-  char * output_octave_string = (char * ) malloc(6 * sizeof(char));
-  double note_semitones_offset = 0.0;
-  for (;;) {
-    // wait for new samples
-    while (samples_read == 0) {}
-    // store and clear the samples read from the callback
-    int sample_count = samples_read;
-    samples_read = 0;
-    // FFT calculations (Dear future self, it's 4AM as I'm writing this. Please forgive me for any bugs, memory leaks or thermonuclear war (see what I did there?))
-    // fill fourier transform input while subtracting DC component
-    uint64_t sum = 0;
-    for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
-      sum += sample_buffer[i] * MIC_GAIN;
-    }
-    float avg = ((float)(sum)) / ((double) MIC_BUFFER_SIZE);
-
-    for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
-      fft_in[i] = sample_buffer[i] * MIC_GAIN - avg;
-    }
-    // compute fast fourier transform
-    kiss_fftr(cfg, fft_in, fft_out);
-
-    // compute power and calculate max freq component
-    float max_power = 0;
-    int max_idx = 0;
-    // any frequency bin over MIC_BUFFER_SIZE/2 is aliased (nyquist sampling theorum)
-    for (int i = 0; i < MIC_BUFFER_SIZE / 2; i++) {
-      float power = fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i;
-      if (power > max_power) {
-        max_power = power;
-        max_idx = i;
-      }
-    }
-
-    float max_freq = freqs[max_idx];
-    printf("Greatest Frequency Component: %0.1f Hz\n", max_freq);
-    // Draw UI background skin
-    ssd1306_bmp_show_image( & disp, main_ui_image_data, main_ui_image_size);
-    // Determine played note and offset
-    note_semitones_offset = determineNote(max_freq, output_note_string, output_octave_string);
-    if (is_this_the_first_output_note) {
-      is_this_the_first_output_note = false;
-      sprintf(old_output_note_string, "%s", output_note_string);
-      sprintf(old_output_octave_string, "%s", output_octave_string);
-      old_note_semitones_offset = note_semitones_offset;
-    } else {
-      if (strcmp(output_note_string,"L") == 0) {
-        sprintf(output_note_string, "%s",old_output_note_string);
-        sprintf(output_octave_string, "%s", old_output_octave_string);
-        note_semitones_offset = old_note_semitones_offset;
-      } else{
-        sprintf(old_output_note_string, "%s", output_note_string);
-        sprintf(old_output_octave_string, "%s", output_octave_string);
-        old_note_semitones_offset = note_semitones_offset;
-      }
-    }
-    sprintf(output_note_letter, "%c", output_note_string[0]);
-    // Display closest note
+void displayTunerResults(ssd1306_t disp, char * output_note_letter, char * output_note_string, char * output_octave_string, char * output_cents_offset_string, double note_semitones_offset){
+  // Draw UI background skin
+  ssd1306_bmp_show_image( & disp, main_ui_image_data, main_ui_image_size);
+  // Display closest note
     ssd1306_draw_string( & disp, 59, 24, 2, output_note_letter); // (128-10)/2, (64-16)/2
     ssd1306_draw_string( & disp, 69, 20, 1, & (output_note_string[1])); // (128-10)/2+10+4, (64-16)/2-4
     ssd1306_draw_string( & disp, 69, 36, 1, output_octave_string); // (128-10)/2+10, (64-16)/2+12
@@ -261,5 +208,98 @@ void showMainUI(ssd1306_t disp) {
     // Display result
     ssd1306_show( & disp);
     ssd1306_clear( & disp);
+}
+
+double signnum_c(double x) {
+  if (x > 0.0) return 1.0;
+  if (x < 0.0) return -1.0;
+  return x;
+}
+
+void showMainUI(ssd1306_t disp) {
+  // FFT setup start.
+  // calculate frequencies of each bin
+  float f_max = MIC_SAMPLERATE;
+  float f_res = f_max / MIC_BUFFER_SIZE;
+  for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
+    freqs[i] = f_res * i;
+  }
+  kiss_fft_scalar fft_in[MIC_BUFFER_SIZE]; // kiss_fft_scalar is a float
+  kiss_fft_cpx fft_out[MIC_BUFFER_SIZE];
+  kiss_fftr_cfg cfg = kiss_fftr_alloc(MIC_BUFFER_SIZE, false, 0, 0);
+  // FFT setup end.
+  ssd1306_clear( & disp);
+  char * old_output_note_string = (char * ) malloc(6 * sizeof(char));
+  char * old_output_octave_string = (char * ) malloc(6 * sizeof(char));
+  double old_note_semitones_offset = 0;
+  bool is_this_the_first_output_note = true;
+  // Allocate memory for temporary variables
+  char * output_note_letter = (char * ) malloc(1 * sizeof(char));
+  char * output_cents_offset_string = (char * ) malloc(4 * sizeof(char));
+  char * output_note_string = (char * ) malloc(6 * sizeof(char));
+  char * output_octave_string = (char * ) malloc(6 * sizeof(char));
+  double note_semitones_offset = 0.0;
+  // Boot animation
+  double boot_animation_position = -0.5;
+  double boot_velocity = 0.0;
+  for (int i = 0; i < BOOT_ANIMATION_FRAMES; ++i){
+  displayTunerResults(disp, "L+", "L", "0", output_cents_offset_string, boot_animation_position);
+  boot_velocity += -signnum_c(boot_animation_position)/(boot_animation_position*boot_animation_position+0.1)/2000.0;
+  boot_animation_position += boot_velocity;
+  }
+  for (;;) {
+    // wait for new samples
+    while (samples_read == 0) {}
+    // store and clear the samples read from the callback
+    int sample_count = samples_read;
+    samples_read = 0;
+    // FFT calculations (Dear future self, it's 4AM as I'm writing this. Please forgive me for any bugs, memory leaks or thermonuclear war (see what I did there?))
+    // fill fourier transform input while subtracting DC component
+    uint64_t sum = 0;
+    for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
+      sum += sample_buffer[i] * MIC_GAIN;
+    }
+    float avg = ((float)(sum)) / ((double) MIC_BUFFER_SIZE);
+
+    for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
+      fft_in[i] = sample_buffer[i] * MIC_GAIN - avg;
+    }
+    // compute fast fourier transform
+    kiss_fftr(cfg, fft_in, fft_out);
+
+    // compute power and calculate max freq component
+    float max_power = 0;
+    int max_idx = 0;
+    // any frequency bin over MIC_BUFFER_SIZE/2 is aliased (nyquist sampling theorum)
+    for (int i = 0; i < MIC_BUFFER_SIZE / 2; i++) {
+      float power = fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i;
+      if (power > max_power) {
+        max_power = power;
+        max_idx = i;
+      }
+    }
+
+    float max_freq = freqs[max_idx];
+    printf("Greatest Frequency Component: %0.1f Hz\n", max_freq);
+    // Determine played note and offset
+    note_semitones_offset = determineNote(max_freq, output_note_string, output_octave_string);
+    if (is_this_the_first_output_note) {
+      is_this_the_first_output_note = false;
+      sprintf(old_output_note_string, "%s", output_note_string);
+      sprintf(old_output_octave_string, "%s", output_octave_string);
+      old_note_semitones_offset = note_semitones_offset;
+    } else {
+      if (strcmp(output_note_string,"L") == 0) {
+        sprintf(output_note_string, "%s",old_output_note_string);
+        sprintf(output_octave_string, "%s", old_output_octave_string);
+        note_semitones_offset = old_note_semitones_offset;
+      } else{
+        sprintf(old_output_note_string, "%s", output_note_string);
+        sprintf(old_output_octave_string, "%s", output_octave_string);
+        old_note_semitones_offset = note_semitones_offset;
+      }
+    }
+    sprintf(output_note_letter, "%c", output_note_string[0]);
+    displayTunerResults(disp, output_note_letter, output_note_string, output_octave_string, output_cents_offset_string, note_semitones_offset);
   }
 }
