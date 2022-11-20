@@ -23,6 +23,7 @@ m2_screw_head_size = [4,4,1];
 // Text Position
 text_offset_from_corner = [5.5,3.7];
 text_size = 4.2;
+text_depth = 1; //mm
 
 
 // Misc
@@ -92,8 +93,8 @@ cube(size=[pi_board_size.x+2*pi_board_padding,screen_pcb_size.x+2*pi_board_paddi
     translate([pi_board_size.x-pi_board_screw_holes_center_from_board_edge_distance.y+pi_board_padding,screen_pcb_size.x-pi_board_screw_holes_center_from_board_edge_distance.x+pi_board_padding,walls_thickness-m2_screw_head_size.z]) cylinder(m2_screw_head_size.z,m2_screw_head_size.x/2,m2_screw_head_size.x/2,$fn=resolution);
    }
    
-   translate([text_offset_from_corner.x+text_size,text_offset_from_corner.y,walls_thickness]) rotate ([0,0,90]) linear_extrude(height = 0.5) { text("pTuna",font = "Rubik-VariableFont_wght:style=Bold",size = text_size);
+   translate([text_offset_from_corner.x+text_size,text_offset_from_corner.y,walls_thickness]) rotate ([0,0,90]) linear_extrude(height = text_depth) { text("pTuna",font = "Rubik-VariableFont_wght:style=Bold",size = text_size);
    }
    relative_sub_text_size = text_size*0.5;
-   translate([text_offset_from_corner.x+text_size+relative_sub_text_size+1,text_offset_from_corner.y+5,walls_thickness]) rotate ([0,0,90]) linear_extrude(height = 0.5) { text("by OnTake",font = "Rubik-VariableFont_wght:style=Bold",size = relative_sub_text_size);
+   translate([text_offset_from_corner.x+text_size+relative_sub_text_size+1,text_offset_from_corner.y+5,walls_thickness]) rotate ([0,0,90]) linear_extrude(height = text_depth) { text("by OnTake",font = "Rubik-VariableFont_wght:style=Bold",size = relative_sub_text_size);
    }
