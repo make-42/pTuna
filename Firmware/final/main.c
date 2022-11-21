@@ -26,7 +26,7 @@
 
 #include "kiss/kiss_fftr.h"
 
-#define SPLASHSCREEN_DURATION 800 //ms
+#define SPLASHSCREEN_DURATION 1200 //ms
 #define C0_FREQUENCY 16.3515978313 //hz C8(4186.01hz) / 4186.01/(2^8) (440/(2^(9/12+4)) would be more exact though)
 #define CUTOFF_FREQUENCY 8.17580078125 //hz
 #define SEMITONE_OFFSET_SENSITIVITY 1.24 // cents per pixel (64-2)/50
@@ -34,6 +34,7 @@
 #define MIC_SAMPLERATE 4000 // no unit
 #define MIC_GAIN 1.0 // multiplier
 #define BOOT_ANIMATION_FRAMES 60
+#define SHOW_BOOT_ANIMATION false
 
 // configuration
 const struct pdm_microphone_config config = {
@@ -63,7 +64,7 @@ void drawGuitarStringIndicator(ssd1306_t disp, int stringIndex);
 int main() {
   // Overclock Pico
   bool overclockingSuccess = true;
-  if (!set_sys_clock_khz(150000, true)){
+  if (!set_sys_clock_khz(150000, true)) {
     set_sys_clock_khz(125000, true);
     overclockingSuccess = false;
   }
@@ -76,7 +77,7 @@ int main() {
   ssd1306_t disp;
   disp.external_vcc = false;
   ssd1306_init( & disp, 128, 64, 0x3C, i2c0);
-  if (!overclockingSuccess){
+  if (!overclockingSuccess) {
     printf("overclock failed...\n");
     overclockFail(disp);
     return 0;
@@ -157,57 +158,56 @@ double determineNote(double frequency, char * output_note_string, char * output_
     free(octaveString); // no memory leaks here 😅...
     return (semitones_over_C0 - closest_whole_semitones_over_C0);
   }
-
 }
 
 void drawGuitarStringIndicator(ssd1306_t disp, int stringIndex) {
   ssd1306_draw_square( & disp, 3 + stringIndex * 5, 35, 3, 3); // 3, 35
 }
 
-void displayTunerResults(ssd1306_t disp, char * output_note_letter, char * output_note_string, char * output_octave_string, char * output_cents_offset_string, double note_semitones_offset){
+void displayTunerResults(ssd1306_t disp, char * output_note_letter, char * output_note_string, char * output_octave_string, char * output_cents_offset_string, double note_semitones_offset) {
   // Draw UI background skin
   ssd1306_bmp_show_image( & disp, main_ui_image_data, main_ui_image_size);
   // Display closest note
-    ssd1306_draw_string( & disp, 59, 24, 2, output_note_letter); // (128-10)/2, (64-16)/2
-    ssd1306_draw_string( & disp, 69, 20, 1, & (output_note_string[1])); // (128-10)/2+10+4, (64-16)/2-4
-    ssd1306_draw_string( & disp, 69, 36, 1, output_octave_string); // (128-10)/2+10, (64-16)/2+12
-    // Draw the offset bar
-    if (note_semitones_offset < 0) {
-      sprintf(output_cents_offset_string, "%dc", (int)(round(note_semitones_offset * 100)));
-      ssd1306_draw_string( & disp, 28, 48, 1, output_cents_offset_string); // 128/2-4*5-16, 64-2-6-8
-      ssd1306_draw_square( & disp, (int)(round(64 + (note_semitones_offset * 100 * SEMITONE_OFFSET_SENSITIVITY))), 56, (int)(round(fabs(note_semitones_offset * 100 * SEMITONE_OFFSET_SENSITIVITY))), 6); // 128/2, 64-2-6
-    } else {
-      sprintf(output_cents_offset_string, "+%dc", (int)(round(note_semitones_offset * 100)));
-      ssd1306_draw_string( & disp, 80, 48, 1, output_cents_offset_string); // 128/2+16, 64-2-6-8
-      ssd1306_draw_square( & disp, 64, 56, (int)(round(fabs(note_semitones_offset * 100 * SEMITONE_OFFSET_SENSITIVITY))), 6); // 128/2, 64-2-6
+  ssd1306_draw_string( & disp, 59, 24, 2, output_note_letter); // (128-10)/2, (64-16)/2
+  ssd1306_draw_string( & disp, 69, 20, 1, & (output_note_string[1])); // (128-10)/2+10+4, (64-16)/2-4
+  ssd1306_draw_string( & disp, 69, 36, 1, output_octave_string); // (128-10)/2+10, (64-16)/2+12
+  // Draw the offset bar
+  if (note_semitones_offset < 0) {
+    sprintf(output_cents_offset_string, "%dc", (int)(round(note_semitones_offset * 100)));
+    ssd1306_draw_string( & disp, 28, 48, 1, output_cents_offset_string); // 128/2-4*5-16, 64-2-6-8
+    ssd1306_draw_square( & disp, (int)(round(64 + (note_semitones_offset * 100 * SEMITONE_OFFSET_SENSITIVITY))), 56, (int)(round(fabs(note_semitones_offset * 100 * SEMITONE_OFFSET_SENSITIVITY))), 6); // 128/2, 64-2-6
+  } else {
+    sprintf(output_cents_offset_string, "+%dc", (int)(round(note_semitones_offset * 100)));
+    ssd1306_draw_string( & disp, 80, 48, 1, output_cents_offset_string); // 128/2+16, 64-2-6-8
+    ssd1306_draw_square( & disp, 64, 56, (int)(round(fabs(note_semitones_offset * 100 * SEMITONE_OFFSET_SENSITIVITY))), 6); // 128/2, 64-2-6
+  }
+  if (strcmp(output_octave_string, "2") == 0) {
+    if (strcmp(output_note_string, "E") == 0) {
+      drawGuitarStringIndicator(disp, 0);
     }
-    if (strcmp(output_octave_string, "2") == 0) {
-      if (strcmp(output_note_string, "E") == 0) {
-        drawGuitarStringIndicator(disp, 0);
-      }
-      if (strcmp(output_note_string, "A") == 0) {
-        drawGuitarStringIndicator(disp, 1);
-      }
+    if (strcmp(output_note_string, "A") == 0) {
+      drawGuitarStringIndicator(disp, 1);
     }
-    if (strcmp(output_octave_string, "3") == 0) {
-      if (strcmp(output_note_string, "D") == 0) {
-        drawGuitarStringIndicator(disp, 2);
-      }
-      if (strcmp(output_note_string, "G") == 0) {
-        drawGuitarStringIndicator(disp, 3);
-      }
-      if (strcmp(output_note_string, "B") == 0) {
-        drawGuitarStringIndicator(disp, 4);
-      }
+  }
+  if (strcmp(output_octave_string, "3") == 0) {
+    if (strcmp(output_note_string, "D") == 0) {
+      drawGuitarStringIndicator(disp, 2);
     }
-    if (strcmp(output_octave_string, "4") == 0) {
-      if (strcmp(output_note_string, "E") == 0) {
-        drawGuitarStringIndicator(disp, 5);
-      }
+    if (strcmp(output_note_string, "G") == 0) {
+      drawGuitarStringIndicator(disp, 3);
     }
-    // Display result
-    ssd1306_show( & disp);
-    ssd1306_clear( & disp);
+    if (strcmp(output_note_string, "B") == 0) {
+      drawGuitarStringIndicator(disp, 4);
+    }
+  }
+  if (strcmp(output_octave_string, "4") == 0) {
+    if (strcmp(output_note_string, "E") == 0) {
+      drawGuitarStringIndicator(disp, 5);
+    }
+  }
+  // Display result
+  ssd1306_show( & disp);
+  ssd1306_clear( & disp);
 }
 
 double signnum_c(double x) {
@@ -240,12 +240,14 @@ void showMainUI(ssd1306_t disp) {
   char * output_octave_string = (char * ) malloc(6 * sizeof(char));
   double note_semitones_offset = 0.0;
   // Boot animation
-  double boot_animation_position = -0.5;
-  double boot_velocity = 0.0;
-  for (int i = 0; i < BOOT_ANIMATION_FRAMES; ++i){
-  displayTunerResults(disp, "L+", "L", "0", output_cents_offset_string, boot_animation_position);
-  boot_velocity += -signnum_c(boot_animation_position)/(boot_animation_position*boot_animation_position+0.1)/2000.0;
-  boot_animation_position += boot_velocity;
+  if (SHOW_BOOT_ANIMATION) {
+    double boot_animation_position = -0.5;
+    double boot_velocity = 0.0;
+    for (int i = 0; i < BOOT_ANIMATION_FRAMES; ++i) {
+      displayTunerResults(disp, "L+", "L", "0", output_cents_offset_string, boot_animation_position);
+      boot_velocity += -signnum_c(boot_animation_position) / (boot_animation_position * boot_animation_position + 0.1) / 2000.0;
+      boot_animation_position += boot_velocity;
+    }
   }
   for (;;) {
     // wait for new samples
@@ -289,11 +291,11 @@ void showMainUI(ssd1306_t disp) {
       sprintf(old_output_octave_string, "%s", output_octave_string);
       old_note_semitones_offset = note_semitones_offset;
     } else {
-      if (strcmp(output_note_string,"L") == 0) {
-        sprintf(output_note_string, "%s",old_output_note_string);
+      if (strcmp(output_note_string, "L") == 0) {
+        sprintf(output_note_string, "%s", old_output_note_string);
         sprintf(output_octave_string, "%s", old_output_octave_string);
         note_semitones_offset = old_note_semitones_offset;
-      } else{
+      } else {
         sprintf(old_output_note_string, "%s", output_note_string);
         sprintf(old_output_octave_string, "%s", output_octave_string);
         old_note_semitones_offset = note_semitones_offset;
