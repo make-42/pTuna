@@ -24,7 +24,7 @@ target_include_directories(pico_pdm_microphone INTERFACE
 
 pico_generate_pio_header(pico_pdm_microphone ${CMAKE_CURRENT_LIST_DIR}/src/pdm_microphone.pio)
 
-target_link_libraries(pico_pdm_microphone INTERFACE pico_stdlib hardware_dma hardware_pio)
+target_link_libraries(pico_pdm_microphone INTERFACE pico_stdlib pico_multicore hardware_dma hardware_pio)
 
 add_library(kiss_fftr kiss/kiss_fftr.c)
 add_library(kiss_fft kiss/kiss_fft.c)
@@ -42,7 +42,7 @@ target_include_directories(ptuna
         ${CMAKE_CURRENT_LIST_DIR}/../
 )
 
-target_link_libraries(ptuna pico_stdlib hardware_i2c pico_pdm_microphone kiss_fftr)
+target_link_libraries(ptuna pico_stdlib pico_multicore hardware_i2c pico_pdm_microphone kiss_fftr)
 
 pico_enable_stdio_usb(ptuna 1)
 pico_enable_stdio_uart(ptuna 0)
