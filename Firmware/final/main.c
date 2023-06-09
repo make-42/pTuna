@@ -14,6 +14,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/pdm_microphone.h"
+#include "pico/multicore.h"
 #include "hardware/i2c.h"
 
 #include "libssd1306/ssd1306.h"
@@ -30,14 +31,17 @@
 #define C0_FREQUENCY 16.3515978313 //hz C8(4186.01hz) / 4186.01/(2^8) (440/(2^(9/12+4)) would be more exact though)
 #define CUTOFF_FREQUENCY 8.17580078125 //hz
 #define SEMITONE_OFFSET_SENSITIVITY 1.24 // cents per pixel (64-2)/50
-#define MIC_BUFFER_SIZE 4096 // samples
-#define MIC_SAMPLERATE 8192 // no unit
+#define MIC_BUFFER_SIZE 512 // samples
+#define CUMUL_BUFFER_SIZE 8 // multiplier, int
+#define MIC_SAMPLERATE 4096 // no unit
 #define MIC_GAIN 1.0 // multiplier
 #define BOOT_ANIMATION_FRAMES 60
 #define SHOW_BOOT_ANIMATION false
 
 #define OSCILLOSCOPE_SAMPLES 50
 #define OSCILLOSCOPE_GAIN 15
+
+#define FLAG_VALUE 123
 
 // configuration
 const struct pdm_microphone_config config = {
@@ -51,8 +55,9 @@ const struct pdm_microphone_config config = {
 
 // variables
 int16_t sample_buffer[MIC_BUFFER_SIZE];
+int16_t sample_buffer_cumul[MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE];
 volatile int samples_read = 0;
-float freqs[MIC_BUFFER_SIZE];
+float freqs[MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE];
 
 // functions
 void setup_gpios(void);
@@ -64,6 +69,7 @@ double U64ToDoubleConverter(uint64_t val);
 double determineNote(double frequency, char * output_note_string, char * output_octave_string);
 void drawGuitarStringIndicator(ssd1306_t* disp, int stringIndex);
 void drawOscilloscope(ssd1306_t* disp, float max_freq);
+void cumulSamples(void);
 
 int main() {
   // Overclock Pico
@@ -173,16 +179,16 @@ void drawOscilloscope(ssd1306_t* disp, float max_freq){
   if (max_freq != 0){
   samples_to_read = round(2/max_freq*MIC_SAMPLERATE);
   }
-  if (samples_to_read<=MIC_BUFFER_SIZE){
+  if (samples_to_read<=MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE){
   float sample_offset = (float)samples_to_read/OSCILLOSCOPE_SAMPLES;
   int16_t max_value = 1;
   for (int i = 0; i < OSCILLOSCOPE_SAMPLES; ++i) {
-      if (abs(sample_buffer[(int)round(sample_offset*i)]) > max_value) {
-        max_value=abs(sample_buffer[(int)round(sample_offset*i)]);
+      if (abs(sample_buffer_cumul[(int)round(sample_offset*i)]) > max_value) {
+        max_value=abs(sample_buffer_cumul[(int)round(sample_offset*i)]);
       }
     }
   for (int i = 0; i < OSCILLOSCOPE_SAMPLES; ++i) {
-      ssd1306_draw_pixel(disp,125-i,35+round(((float)sample_buffer[(int)round(sample_offset*i)])/((float)max_value)*OSCILLOSCOPE_GAIN));
+      ssd1306_draw_pixel(disp,125-i,35+round(((float)sample_buffer_cumul[(int)round(sample_offset*i)])/((float)max_value)*OSCILLOSCOPE_GAIN));
     }
   }
   }
@@ -240,17 +246,36 @@ double signnum_c(double x) {
   return x;
 }
 
+void cumulSamples(){
+  multicore_fifo_push_blocking(FLAG_VALUE);
+  uint32_t g = multicore_fifo_pop_blocking();
+  if (g != FLAG_VALUE){
+        printf("Hmm, that's not right on core 1!\n");
+  } else {
+        printf("Its all gone well on core 1!");
+  }
+  for(;;){
+  while (samples_read == 0) {}
+  int sample_count = samples_read;
+  memcpy (&sample_buffer_cumul[0],&sample_buffer_cumul[MIC_BUFFER_SIZE],MIC_BUFFER_SIZE*sizeof(int16_t)*(CUMUL_BUFFER_SIZE-1));
+  memcpy (&sample_buffer_cumul[MIC_BUFFER_SIZE*(CUMUL_BUFFER_SIZE-1)],&sample_buffer[0],MIC_BUFFER_SIZE*sizeof(int16_t));
+  printf("blocking core 1!");
+  multicore_fifo_push_blocking(FLAG_VALUE);
+    printf("core 1 unblocked!");
+  }
+}
+
 void showMainUI(ssd1306_t disp) {
   // FFT setup start.
   // calculate frequencies of each bin
   float f_max = MIC_SAMPLERATE;
-  float f_res = f_max / MIC_BUFFER_SIZE;
-  for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
+  float f_res = f_max / (MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE);
+  for (int i = 0; i < (MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE); i++) {
     freqs[i] = f_res * i;
   }
-  kiss_fft_scalar fft_in[MIC_BUFFER_SIZE]; // kiss_fft_scalar is a float
-  kiss_fft_cpx fft_out[MIC_BUFFER_SIZE];
-  kiss_fftr_cfg cfg = kiss_fftr_alloc(MIC_BUFFER_SIZE, false, 0, 0);
+  kiss_fft_scalar fft_in[(MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE)]; // kiss_fft_scalar is a float
+  kiss_fft_cpx fft_out[(MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE)];
+  kiss_fftr_cfg cfg = kiss_fftr_alloc((MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE), false, 0, 0);
   // FFT setup end.
   ssd1306_clear( & disp);
   char * old_output_note_string = (char * ) malloc(6 * sizeof(char));
@@ -273,22 +298,30 @@ void showMainUI(ssd1306_t disp) {
       boot_animation_position += boot_velocity;
     }
   }
+  multicore_launch_core1(cumulSamples);
+  uint32_t g = multicore_fifo_pop_blocking();
+ 
+    if (g != FLAG_VALUE){
+        printf("Hmm, that's not right on core 0!\n");
+    }
+    else {
+        multicore_fifo_push_blocking(FLAG_VALUE);
+        printf("It's all gone well on core 0!");
+    }
   for (;;) {
-    // wait for new samples
-    while (samples_read == 0) {}
-    // store and clear the samples read from the callback
-    int sample_count = samples_read;
-    samples_read = 0;
+    printf("blocking core 0!");
+    multicore_fifo_pop_blocking();
+    printf("core 0 unblocked!");
     // FFT calculations (Dear future self, it's 4AM as I'm writing this. Please forgive me for any bugs, memory leaks or thermonuclear war (see what I did there?))
     // fill fourier transform input while subtracting DC component
     uint64_t sum = 0;
-    for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
-      sum += sample_buffer[i] * MIC_GAIN;
+    for (int i = 0; i < (MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE); i++) {
+      sum += sample_buffer_cumul[i] * MIC_GAIN;
     }
-    float avg = ((float)(sum)) / ((double) MIC_BUFFER_SIZE);
+    float avg = ((float)(sum)) / ((double) (MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE));
 
-    for (int i = 0; i < MIC_BUFFER_SIZE; i++) {
-      fft_in[i] = sample_buffer[i] * MIC_GAIN - avg;
+    for (int i = 0; i < (MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE); i++) {
+      fft_in[i] = sample_buffer_cumul[i] * MIC_GAIN - avg;
     }
     // compute fast fourier transform
     kiss_fftr(cfg, fft_in, fft_out);
@@ -297,7 +330,7 @@ void showMainUI(ssd1306_t disp) {
     float max_power = 0;
     int max_idx = 0;
     // any frequency bin over MIC_BUFFER_SIZE/2 is aliased (nyquist sampling theorum)
-    for (int i = 0; i < MIC_BUFFER_SIZE / 2; i++) {
+    for (int i = 0; i < (MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE) / 2; i++) {
       float power = fft_out[i].r * fft_out[i].r + fft_out[i].i * fft_out[i].i;
       if (power > max_power) {
         max_power = power;
