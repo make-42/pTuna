@@ -33,7 +33,7 @@
 #define SEMITONE_OFFSET_SENSITIVITY 1.24 // cents per pixel (64-2)/50
 #define MIC_BUFFER_SIZE 512 // samples
 #define CUMUL_BUFFER_SIZE 8 // multiplier, int
-#define MIC_SAMPLERATE 4096 // no unit
+#define MIC_SAMPLERATE 4096 // hz
 #define MIC_GAIN 1.0 // multiplier
 #define BOOT_ANIMATION_FRAMES 60
 #define SHOW_BOOT_ANIMATION false
@@ -183,8 +183,8 @@ void drawOscilloscope(ssd1306_t* disp, float max_freq){
   float sample_offset = (float)samples_to_read/OSCILLOSCOPE_SAMPLES;
   int16_t max_value = 1;
   for (int i = 0; i < OSCILLOSCOPE_SAMPLES; ++i) {
-      if (abs(sample_buffer_cumul[(int)round(sample_offset*i)]) > max_value) {
-        max_value=abs(sample_buffer_cumul[(int)round(sample_offset*i)]);
+      if (abs(sample_buffer_cumul[(int)round(sample_offset*i)+MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE-samples_to_read]) > max_value) {
+        max_value=abs(sample_buffer_cumul[(int)round(sample_offset*i)+MIC_BUFFER_SIZE*CUMUL_BUFFER_SIZE-samples_to_read]);
       }
     }
   for (int i = 0; i < OSCILLOSCOPE_SAMPLES; ++i) {
